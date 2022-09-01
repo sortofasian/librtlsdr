@@ -1301,6 +1301,11 @@ uint32_t rtlsdr_get_device_count(void)
 	struct libusb_device_descriptor dd;
 	ssize_t cnt;
 
+#ifdef __ANDROID__
+	/* LibUSB does not support device discovery on android */
+	libusb_set_option(NULL, LIBUSB_OPTION_NO_DEVICE_DISCOVERY, NULL);
+#endif
+
 	r = libusb_init(&ctx);
 	if(r < 0)
 		return 0;
@@ -1330,6 +1335,11 @@ const char *rtlsdr_get_device_name(uint32_t index)
 	rtlsdr_dongle_t *device = NULL;
 	uint32_t device_count = 0;
 	ssize_t cnt;
+
+#ifdef __ANDROID__
+	/* LibUSB does not support device discovery on android */
+	libusb_set_option(NULL, LIBUSB_OPTION_NO_DEVICE_DISCOVERY, NULL);
+#endif
 
 	r = libusb_init(&ctx);
 	if(r < 0)
@@ -1372,6 +1382,11 @@ int rtlsdr_get_device_usb_strings(uint32_t index, char *manufact,
 	rtlsdr_dev_t devt;
 	uint32_t device_count = 0;
 	ssize_t cnt;
+
+#ifdef __ANDROID__
+	/* LibUSB does not support device discovery on android */
+	libusb_set_option(NULL, LIBUSB_OPTION_NO_DEVICE_DISCOVERY, NULL);
+#endif
 
 	r = libusb_init(&ctx);
 	if(r < 0)
@@ -1430,66 +1445,10 @@ int rtlsdr_get_index_by_serial(const char *serial)
 	return -3;
 }
 
-int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
-{
+int rtlsdr_setup(rtlsdr_dev_t **out_dev, rtlsdr_dev_t *dev) {
 	int r;
 	int i;
-	libusb_device **list;
-	rtlsdr_dev_t *dev = NULL;
-	libusb_device *device = NULL;
-	uint32_t device_count = 0;
-	struct libusb_device_descriptor dd;
 	uint8_t reg;
-	ssize_t cnt;
-
-	dev = malloc(sizeof(rtlsdr_dev_t));
-	if (NULL == dev)
-		return -ENOMEM;
-
-	memset(dev, 0, sizeof(rtlsdr_dev_t));
-	memcpy(dev->fir, fir_default, sizeof(fir_default));
-
-	r = libusb_init(&dev->ctx);
-	if(r < 0){
-		free(dev);
-		return -1;
-	}
-
-	dev->dev_lost = 1;
-
-	cnt = libusb_get_device_list(dev->ctx, &list);
-
-	for (i = 0; i < cnt; i++) {
-		device = list[i];
-
-		libusb_get_device_descriptor(list[i], &dd);
-
-		if (find_known_device(dd.idVendor, dd.idProduct)) {
-			device_count++;
-		}
-
-		if (index == device_count - 1)
-			break;
-
-		device = NULL;
-	}
-
-	if (!device) {
-		r = -1;
-		goto err;
-	}
-
-	r = libusb_open(device, &dev->devh);
-	if (r < 0) {
-		libusb_free_device_list(list, 1);
-		fprintf(stderr, "usb_open error %d\n", r);
-		if(r == LIBUSB_ERROR_ACCESS)
-			fprintf(stderr, "Please fix the device permissions, e.g. "
-			"by installing the udev rules file rtl-sdr.rules\n");
-		goto err;
-	}
-
-	libusb_free_device_list(list, 1);
 
 	if (libusb_kernel_driver_active(dev->devh, 0) == 1) {
 		dev->driver_active = 1;
@@ -1632,6 +1591,106 @@ err:
 	}
 
 	return r;
+}
+
+int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
+{
+	int r;
+	int i;
+	libusb_device **list;
+	rtlsdr_dev_t *dev = NULL;
+	libusb_device *device = NULL;
+	uint32_t device_count = 0;
+	struct libusb_device_descriptor dd;
+	ssize_t cnt;
+
+	dev = malloc(sizeof(rtlsdr_dev_t));
+	if (NULL == dev)
+		return -ENOMEM;
+
+	memset(dev, 0, sizeof(rtlsdr_dev_t));
+	memcpy(dev->fir, fir_default, sizeof(fir_default));
+
+#ifdef __ANDROID__
+	/* LibUSB does not support device discovery on android */
+	libusb_set_option(NULL, LIBUSB_OPTION_NO_DEVICE_DISCOVERY, NULL);
+#endif
+
+	r = libusb_init(&dev->ctx);
+	if(r < 0){
+		free(dev);
+		return -1;
+	}
+
+	dev->dev_lost = 1;
+
+	cnt = libusb_get_device_list(dev->ctx, &list);
+
+	for (i = 0; i < cnt; i++) {
+		device = list[i];
+
+		libusb_get_device_descriptor(list[i], &dd);
+
+		if (find_known_device(dd.idVendor, dd.idProduct)) {
+			device_count++;
+		}
+
+		if (index == device_count - 1)
+			break;
+
+		device = NULL;
+	}
+
+	if (!device) {
+		r = -1;
+		goto err;
+	}
+
+	r = libusb_open(device, &dev->devh);
+	if (r < 0) {
+		libusb_free_device_list(list, 1);
+		fprintf(stderr, "usb_open error %d\n", r);
+		if(r == LIBUSB_ERROR_ACCESS)
+			fprintf(stderr, "Please fix the device permissions, e.g. "
+			"by installing the udev rules file rtl-sdr.rules\n");
+		goto err;
+	}
+
+	libusb_free_device_list(list, 1);
+
+	return rtlsdr_setup(out_dev, dev);
+}
+
+int rtlsdr_open_fd(rtlsdr_dev_t **out_dev, int fd)
+{
+	int r;
+	rtlsdr_dev_t *dev = NULL;
+
+	dev = malloc(sizeof(rtlsdr_dev_t));
+	if (NULL == dev)
+		return -ENOMEM;
+
+	memset(dev, 0, sizeof(rtlsdr_dev_t));
+	memcpy(dev->fir, fir_default, sizeof(fir_default));
+
+#ifdef __ANDROID__
+	/* LibUSB does not support device discovery on android */
+	libusb_set_option(NULL, LIBUSB_OPTION_NO_DEVICE_DISCOVERY, NULL);
+#endif
+
+	r = libusb_init(&dev->ctx);
+	if(r < 0){
+		free(dev);
+		return -1;
+	}
+	
+	r = libusb_wrap_sys_device(dev->ctx, (intptr_t)fd, &dev->devh);
+	if (r || dev->devh == NULL){
+		free(dev);
+		return -1;
+	}
+
+	return rtlsdr_setup(out_dev, dev);
 }
 
 int rtlsdr_close(rtlsdr_dev_t *dev)
