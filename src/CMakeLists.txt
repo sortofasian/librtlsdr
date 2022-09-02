@@ -138,7 +138,7 @@ else()
     target_link_libraries(rtl_test m rt)
 endif()
 if (ANDROID)
-    target_link_libraries(rtl_adsb pthreads)
+    target_compile_options(rtl_adsb PRIVATE -pthread)
 endif()
 endif()
 
