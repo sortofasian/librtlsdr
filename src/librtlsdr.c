@@ -1659,6 +1659,19 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 	libusb_free_device_list(list, 1);
 
 	return rtlsdr_setup(out_dev, dev);
+
+err:
+	if (dev) {
+		if (dev->devh)
+			libusb_close(dev->devh);
+
+		if (dev->ctx)
+			libusb_exit(dev->ctx);
+
+		free(dev);
+	}
+
+	return r;
 }
 
 int rtlsdr_open_fd(rtlsdr_dev_t **out_dev, int fd)
